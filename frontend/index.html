@@ -132,6 +132,10 @@
             background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
         }
         
+        .btn-attach {
+            background: linear-gradient(135deg, #f59f00 0%, #f76707 100%);
+        }
+        
         .notes-list {
             margin-top: 30px;
         }
@@ -178,6 +182,58 @@
             line-height: 1.7;
             margin-bottom: 20px;
             white-space: pre-wrap;
+        }
+        
+        .attachments-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .attachments-title {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .attachments-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .attachment-item {
+            background: #e9ecef;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .attachment-btn {
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .attachment-preview {
+            background: #339af0;
+        }
+        
+        .attachment-download {
+            background: #51cf66;
         }
         
         .note-actions {
@@ -254,6 +310,93 @@
             100% { transform: rotate(360deg); }
         }
         
+        /* Модальное окно для предпросмотра файлов */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 90%;
+            max-height: 90%;
+            overflow: auto;
+            position: relative;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+        
+        .modal-close:hover {
+            transform: scale(1.1);
+        }
+        
+        .modal-title {
+            margin-bottom: 20px;
+            color: #212529;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .modal-preview {
+            margin-top: 20px;
+        }
+        
+        .modal-preview img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .modal-preview iframe {
+            width: 100%;
+            height: 500px;
+            border: none;
+            border-radius: 8px;
+        }
+        
+        .modal-preview pre {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
         @media (max-width: 600px) {
             body {
                 padding: 10px;
@@ -283,6 +426,14 @@
             .note-actions {
                 flex-direction: column;
             }
+            
+            .attachments-grid {
+                flex-direction: column;
+            }
+            
+            .modal-content {
+                padding: 20px;
+            }
         }
     </style>
 </head>
@@ -290,36 +441,81 @@
     <div class="container">
         <div class="header">
             <h1>☁️ Cloud Notes</h1>
-            <p>Ваше приложение для заметок в облаке Yandex Cloud</p>
+            <p>Ваше приложение для заметок с Object Storage Yandex Cloud</p>
+            <p style="font-size: 0.9rem; margin-top: 10px; opacity: 0.8;">
+                MySQL в Docker • Yandex Object Storage • Flask API
+            </p>
         </div>
         
         <div class="main-content">
+            <!-- Форма создания/редактирования заметки -->
             <div class="card">
-                <h2>📝 Новая заметка</h2>
+                <h2 id="formTitle">📝 Новая заметка</h2>
                 <form id="noteForm">
                     <div class="form-group">
-                        <label for="title">Заголовок</label>
+                        <label for="title">Заголовок *</label>
                         <input type="text" id="title" placeholder="Введите заголовок заметки" required>
                     </div>
                     <div class="form-group">
                         <label for="content">Содержимое</label>
                         <textarea id="content" placeholder="Введите текст заметки..."></textarea>
                     </div>
-                    <button type="submit" class="btn">
+                    <button type="submit" class="btn" id="formSubmitBtn">
                         <span>💾 Создать заметку</span>
+                    </button>
+                    <button type="button" class="btn" onclick="cancelEdit()" 
+                            id="cancelEditBtn" style="display: none; margin-left: 10px; background: linear-gradient(135deg, #868e96 0%, #495057 100%);">
+                        ❌ Отмена
                     </button>
                 </form>
             </div>
-            
+
+            <!-- Форма загрузки файлов -->
             <div class="card">
-                <div class="notes-header">
-                    <h2>📋 Мои заметки</h2>
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button onclick="loadNotes()" class="btn" style="padding: 8px 16px;">
+                <h2>📎 Загрузить файл в Yandex Cloud</h2>
+                <form id="uploadForm">
+                    <div class="form-group">
+                        <label for="noteId">ID заметки *</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="noteId" placeholder="Введите ID заметки" required style="flex: 1;">
+                            <button type="button" class="btn" onclick="showNoteListForUpload()" 
+                                    style="padding: 10px 15px; white-space: nowrap;">
+                                📋 Выбрать
+                            </button>
+                        </div>
+                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                            Введите ID существующей заметки или выберите из списка
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="fileInput">Выберите файл *</label>
+                        <input type="file" id="fileInput" required>
+                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                            Максимальный размер: 5MB. Поддерживаемые форматы: изображения, PDF, текстовые файлы
+                        </small>
+                    </div>
+                    <button type="submit" class="btn">
+                        📤 Загрузить в Yandex Object Storage
+                    </button>
+                </form>
+                <div id="uploadResult" style="margin-top: 20px;"></div>
+            </div>
+
+            <!-- Панель управления -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                    <h2 style="margin: 0;">📋 Мои заметки</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="loadNotes()" class="btn" style="padding: 10px 20px;">
                             🔄 Обновить
                         </button>
-                        <button onclick="checkHealth()" class="btn" style="padding: 8px 16px; background: linear-gradient(135deg, #20c997 0%, #12b886 100%);">
+                        <button onclick="checkHealth()" class="btn" 
+                                style="padding: 10px 20px; background: linear-gradient(135deg, #20c997 0%, #12b886 100%);">
                             🏥 Проверить сервер
+                        </button>
+                        <button onclick="loadStats()" class="btn" 
+                                style="padding: 10px 20px; background: linear-gradient(135deg, #cc5de8 0%, #9c36b5 100%);">
+                            📊 Статистика
                         </button>
                     </div>
                 </div>
@@ -333,8 +529,38 @@
             </div>
         </div>
         
-        <div style="text-align: center; padding: 20px; color: #6c757d; font-size: 14px; border-top: 1px solid #e9ecef;">
-            <p>Cloud Notes • CRUD приложение для Yandex Cloud • Все заметки хранятся в облачной базе данных</p>
+        <!-- Футер -->
+        <div style="text-align: center; padding: 20px; color: #6c757d; font-size: 14px; border-top: 1px solid #e9ecef; background: #f8f9fa;">
+            <p>
+                <strong>Cloud Notes</strong> • Итоговый проект по виртуализации • 
+                <span id="serverInfo">Загрузка информации о сервере...</span>
+            </p>
+            <p style="margin-top: 5px; font-size: 12px;">
+                MySQL Docker контейнер • Yandex Object Storage • Flask REST API • Полный CRUD
+            </p>
+        </div>
+    </div>
+
+    <!-- Модальное окно для предпросмотра файлов -->
+    <div class="modal-overlay" id="filePreviewModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closePreview()">×</button>
+            <h3 class="modal-title">📄 Просмотр файла</h3>
+            <div id="filePreviewContent" class="modal-preview"></div>
+        </div>
+    </div>
+
+    <!-- Модальное окно выбора заметки для загрузки -->
+    <div class="modal-overlay" id="noteSelectModal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close" onclick="closeNoteSelect()">×</button>
+            <h3 class="modal-title">📋 Выберите заметку</h3>
+            <div id="noteSelectList" style="max-height: 400px; overflow-y: auto; margin-top: 20px;">
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Загрузка списка заметок...</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -342,17 +568,20 @@
         // Конфигурация
         const API_BASE_URL = 'http://localhost:5000/api';
         let currentEditNoteId = null;
+        let allNotesCache = [];
         
         // Инициализация
         document.addEventListener('DOMContentLoaded', function() {
             loadNotes();
-            setupForm();
+            setupForms();
+            loadServerInfo();
         });
         
-        // Настройка формы
-        function setupForm() {
-            const form = document.getElementById('noteForm');
-            form.addEventListener('submit', async function(e) {
+        // Настройка форм
+        function setupForms() {
+            // Форма заметки
+            const noteForm = document.getElementById('noteForm');
+            noteForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
                 const title = document.getElementById('title').value.trim();
@@ -364,43 +593,58 @@
                     await createNote(title, content);
                 }
             });
+            
+            // Форма загрузки файла
+            const uploadForm = document.getElementById('uploadForm');
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const noteId = document.getElementById('noteId').value;
+                const fileInput = document.getElementById('fileInput');
+                
+                if (!noteId || !fileInput.files.length) {
+                    showNotification('Заполните все обязательные поля', 'error');
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                const maxSize = 5 * 1024 * 1024; // 5MB
+                
+                if (file.size > maxSize) {
+                    showNotification('Файл слишком большой (макс. 5MB)', 'error');
+                    return;
+                }
+                
+                await uploadFile(noteId, file);
+            });
+        }
+        
+        // Загрузка информации о сервере
+        async function loadServerInfo() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('serverInfo').innerHTML = 
+                        `Сервер: ${data.status === 'healthy' ? '✅' : '⚠️'} | ` +
+                        `БД: ${data.database} | ` +
+                        `Хост: ${data.database_host}:${data.database_port}`;
+                }
+            } catch (error) {
+                document.getElementById('serverInfo').innerHTML = 'Сервер не доступен';
+            }
         }
         
         // Уведомления
         function showNotification(message, type = 'info') {
-            // Удаляем старые уведомления
             const oldNotifications = document.querySelectorAll('.notification');
             oldNotifications.forEach(n => n.remove());
             
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
             notification.textContent = message;
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 15px 20px;
-                border-radius: 8px;
-                color: white;
-                font-weight: 500;
-                z-index: 1000;
-                animation: slideIn 0.3s ease;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            `;
-            
-            // Добавляем стили для анимации
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes slideIn {
-                    from { transform: translateX(100%); opacity: 0; }
-                    to { transform: translateX(0); opacity: 1; }
-                }
-            `;
-            document.head.appendChild(style);
-            
             document.body.appendChild(notification);
             
-            // Автоудаление через 5 секунд
             setTimeout(() => {
                 notification.style.animation = 'slideIn 0.3s ease reverse';
                 setTimeout(() => notification.remove(), 300);
@@ -419,12 +663,11 @@
             
             try {
                 const response = await fetch(`${API_BASE_URL}/notes`);
-                if (!response.ok) {
-                    throw new Error(`Ошибка сервера: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Ошибка: ${response.status}`);
                 
                 const data = await response.json();
-                renderNotes(data.notes);
+                allNotesCache = data.notes || [];
+                renderNotes(allNotesCache);
                 
             } catch (error) {
                 console.error('Ошибка загрузки заметок:', error);
@@ -440,8 +683,25 @@
             }
         }
         
-        // Рендеринг заметок
-        function renderNotes(notes) {
+        // Загрузка статистики
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/stats`);
+                if (!response.ok) throw new Error(`Ошибка: ${response.status}`);
+                
+                const data = await response.json();
+                showNotification(
+                    `📊 Статистика: Всего ${data.total_notes} заметок ` +
+                    `(активных: ${data.active_notes}, удаленных: ${data.deleted_notes})`,
+                    'info'
+                );
+            } catch (error) {
+                showNotification('Ошибка загрузки статистики', 'error');
+            }
+        }
+        
+        // Рендеринг заметок с прикреплениями
+        async function renderNotes(notes) {
             const container = document.getElementById('notesContainer');
             
             if (!notes || notes.length === 0) {
@@ -454,36 +714,97 @@
                 return;
             }
             
-            container.innerHTML = notes.map(note => {
-                const createdDate = new Date(note.created_at);
-                const updatedDate = new Date(note.updated_at);
-                const isEdited = createdDate.getTime() !== updatedDate.getTime();
-                
-                return `
-                    <div class="note" data-id="${note.id}">
-                        <div class="note-header">
-                            <h3>${escapeHtml(note.title)}</h3>
-                            <div class="note-date">
-                                ${createdDate.toLocaleDateString('ru-RU')}
-                                ${isEdited ? ' (изменено)' : ''}
-                            </div>
+            // Загружаем вложения для каждой заметки
+            const notesWithAttachments = await Promise.all(
+                notes.map(async (note) => {
+                    const attachments = await loadAttachments(note.id);
+                    return { ...note, attachments };
+                })
+            );
+            
+            container.innerHTML = notesWithAttachments.map(note => createNoteHTML(note)).join('');
+        }
+        
+        // Создание HTML для одной заметки
+        function createNoteHTML(note) {
+            const createdDate = new Date(note.created_at);
+            const updatedDate = new Date(note.updated_at);
+            const isEdited = createdDate.getTime() !== updatedDate.getTime();
+            
+            let attachmentsHtml = '';
+            if (note.attachments && note.attachments.length > 0) {
+                attachmentsHtml = `
+                    <div class="attachments-section">
+                        <div class="attachments-title">
+                            <span>📎 Прикрепленные файлы (${note.attachments.length}):</span>
                         </div>
-                        <div class="note-content">
-                            ${note.content ? escapeHtml(note.content).replace(/\\n/g, '<br>') : '<em>Нет содержимого</em>'}
-                        </div>
-                        <div class="note-actions">
-                            <button onclick="startEditNote(${note.id}, '${escapeHtml(note.title).replace(/'/g, "\\'")}', '${escapeHtml(note.content || '').replace(/'/g, "\\'").replace(/\\n/g, '\\\\n')}')" 
-                                    class="btn btn-edit">
-                                ✏️ Редактировать
-                            </button>
-                            <button onclick="deleteNote(${note.id})" 
-                                    class="btn btn-delete">
-                                🗑️ Удалить
-                            </button>
+                        <div class="attachments-grid">
+                            ${note.attachments.map(att => `
+                                <div class="attachment-item">
+                                    <span>📄 ${escapeHtml(att.original_filename)}</span>
+                                    <button onclick="previewFile('${att.file_url}', '${att.original_filename}')" 
+                                            class="attachment-btn attachment-preview">
+                                        👁️ Просмотр
+                                    </button>
+                                    <a href="${att.file_url}" target="_blank" 
+                                       class="attachment-btn attachment-download">
+                                        📥 Скачать
+                                    </a>
+                                </div>
+                            `).join('')}
                         </div>
                     </div>
                 `;
-            }).join('');
+            }
+            
+            return `
+                <div class="note" data-id="${note.id}">
+                    <div class="note-header">
+                        <h3>${escapeHtml(note.title)}</h3>
+                        <div class="note-date">
+                            ${createdDate.toLocaleDateString('ru-RU', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            })}
+                            ${isEdited ? ' ✏️ (изменено)' : ''}
+                        </div>
+                    </div>
+                    <div class="note-content">
+                        ${note.content ? escapeHtml(note.content).replace(/\n/g, '<br>') : '<em style="color: #6c757d;">Нет содержимого</em>'}
+                    </div>
+                    ${attachmentsHtml}
+                    <div class="note-actions">
+                        <button onclick="startEditNote(${note.id})" 
+                                class="btn btn-edit">
+                            ✏️ Редактировать
+                        </button>
+                        <button onclick="showUploadFormForNote(${note.id})" 
+                                class="btn btn-attach">
+                            📎 Прикрепить файл
+                        </button>
+                        <button onclick="deleteNote(${note.id})" 
+                                class="btn btn-delete">
+                            🗑️ Удалить
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Загрузка вложений для заметки
+        async function loadAttachments(noteId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/notes/${noteId}/attachments`);
+                if (!response.ok) return [];
+                const data = await response.json();
+                return data.attachments || [];
+            } catch (error) {
+                console.error('Error loading attachments:', error);
+                return [];
+            }
         }
         
         // Создание заметки
@@ -496,9 +817,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/notes`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title, content })
                 });
                 
@@ -508,31 +827,92 @@
                     throw new Error(data.error || 'Ошибка создания заметки');
                 }
                 
-                showNotification('Заметка успешно создана!', 'success');
-                document.getElementById('title').value = '';
-                document.getElementById('content').value = '';
+                showNotification('✅ Заметка успешно создана!', 'success');
+                resetForm();
                 loadNotes();
                 
             } catch (error) {
-                console.error('Ошибка создания заметки:', error);
-                showNotification(error.message, 'error');
+                showNotification(`❌ ${error.message}`, 'error');
             }
         }
         
-        // Начало редактирования
-        function startEditNote(id, title, content) {
-            currentEditNoteId = id;
-            document.getElementById('title').value = title;
-            document.getElementById('content').value = content.replace(/\\\\n/g, '\\n');
+        // Загрузка файла
+        async function uploadFile(noteId, file) {
+            const uploadResult = document.getElementById('uploadResult');
+            uploadResult.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Загрузка в Yandex Object Storage...</p>
+                </div>
+            `;
             
-            const formButton = document.querySelector('#noteForm button');
-            formButton.innerHTML = '<span>💾 Сохранить изменения</span>';
+            const formData = new FormData();
+            formData.append('file', file);
             
-            showNotification('Режим редактирования. Измените текст и нажмите "Сохранить изменения"', 'info');
-            
-            // Прокрутка к форме
-            document.getElementById('title').scrollIntoView({ behavior: 'smooth' });
-            document.getElementById('title').focus();
+            try {
+                const response = await fetch(`${API_BASE_URL}/notes/${noteId}/attach`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    uploadResult.innerHTML = `
+                        <div class="notification success">
+                            ✅ Файл успешно загружен в Yandex Cloud!<br>
+                            <small>Имя файла: ${result.filename}</small><br>
+                            <small>URL: <a href="${result.url}" target="_blank" style="color: white; text-decoration: underline;">${result.url}</a></small>
+                        </div>
+                    `;
+                    document.getElementById('fileInput').value = '';
+                    loadNotes(); // Обновляем список заметок
+                } else {
+                    uploadResult.innerHTML = `<div class="notification error">❌ Ошибка: ${result.error}</div>`;
+                }
+            } catch (error) {
+                uploadResult.innerHTML = `<div class="notification error">❌ Ошибка загрузки: ${error.message}</div>`;
+            }
+        }
+        
+        // Начало редактирования заметки
+        async function startEditNote(id) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/notes/${id}`);
+                if (!response.ok) throw new Error('Заметка не найдена');
+                
+                const note = await response.json();
+                currentEditNoteId = id;
+                
+                document.getElementById('title').value = note.title;
+                document.getElementById('content').value = note.content || '';
+                document.getElementById('formTitle').textContent = '✏️ Редактировать заметку';
+                document.getElementById('formSubmitBtn').innerHTML = '<span>💾 Сохранить изменения</span>';
+                document.getElementById('cancelEditBtn').style.display = 'inline-block';
+                
+                showNotification('Режим редактирования. Измените текст и нажмите "Сохранить изменения"', 'info');
+                document.getElementById('title').scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('title').focus();
+                
+            } catch (error) {
+                showNotification(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        // Отмена редактирования
+        function cancelEdit() {
+            resetForm();
+            showNotification('Редактирование отменено', 'info');
+        }
+        
+        // Сброс формы
+        function resetForm() {
+            currentEditNoteId = null;
+            document.getElementById('title').value = '';
+            document.getElementById('content').value = '';
+            document.getElementById('formTitle').textContent = '📝 Новая заметка';
+            document.getElementById('formSubmitBtn').innerHTML = '<span>💾 Создать заметку</span>';
+            document.getElementById('cancelEditBtn').style.display = 'none';
         }
         
         // Обновление заметки
@@ -545,9 +925,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/notes/${id}`, {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title, content })
                 });
                 
@@ -557,63 +935,167 @@
                     throw new Error(data.error || 'Ошибка обновления заметки');
                 }
                 
-                showNotification('Заметка успешно обновлена!', 'success');
-                
-                // Сброс формы
-                currentEditNoteId = null;
-                document.getElementById('title').value = '';
-                document.getElementById('content').value = '';
-                
-                const formButton = document.querySelector('#noteForm button');
-                formButton.innerHTML = '<span>💾 Создать заметку</span>';
-                
+                showNotification('✅ Заметка успешно обновлена!', 'success');
+                resetForm();
                 loadNotes();
                 
             } catch (error) {
-                console.error('Ошибка обновления заметки:', error);
-                showNotification(error.message, 'error');
+                showNotification(`❌ ${error.message}`, 'error');
             }
         }
         
         // Удаление заметки
         async function deleteNote(id) {
-            if (!confirm('Вы уверены, что хотите удалить эту заметку?')) {
-                return;
-            }
+            if (!confirm('Вы уверены, что хотите удалить эту заметку?')) return;
             
             try {
-                const response = await fetch(`${API_BASE_URL}/notes/${id}`, {
-                    method: 'DELETE'
-                });
+                const response = await fetch(`${API_BASE_URL}/notes/${id}`, { method: 'DELETE' });
                 
                 if (!response.ok) {
                     const data = await response.json();
                     throw new Error(data.error || 'Ошибка удаления заметки');
                 }
                 
-                showNotification('Заметка успешно удалена!', 'success');
+                showNotification('✅ Заметка успешно удалена!', 'success');
                 loadNotes();
                 
             } catch (error) {
-                console.error('Ошибка удаления заметки:', error);
-                showNotification(error.message, 'error');
+                showNotification(`❌ ${error.message}`, 'error');
             }
+        }
+        
+        // Быстрая загрузка файла к заметке
+        function showUploadFormForNote(noteId) {
+            document.getElementById('noteId').value = noteId;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('uploadResult').innerHTML = '';
+            
+            document.getElementById('uploadForm').scrollIntoView({ 
+                behavior: 'smooth',
+                block: 'center'
+            });
+            
+            setTimeout(() => document.getElementById('fileInput').focus(), 500);
+            showNotification(`Загрузите файл для заметки #${noteId}`, 'info');
+        }
+        
+        // Показ списка заметок для выбора
+        async function showNoteListForUpload() {
+            const modal = document.getElementById('noteSelectModal');
+            const list = document.getElementById('noteSelectList');
+            
+            if (allNotesCache.length === 0) {
+                await loadNotes();
+            }
+            
+            if (allNotesCache.length === 0) {
+                list.innerHTML = '<div class="empty-state"><p>Нет заметок для выбора</p></div>';
+            } else {
+                list.innerHTML = allNotesCache.map(note => `
+                    <div style="padding: 15px; border-bottom: 1px solid #e9ecef; cursor: pointer; transition: background 0.2s;"
+                         onclick="selectNoteForUpload(${note.id}, '${escapeHtml(note.title).replace(/'/g, "\\'")}')"
+                         onmouseover="this.style.background='#f8f9fa'"
+                         onmouseout="this.style.background='white'">
+                        <div style="font-weight: 500; color: #212529;">${escapeHtml(note.title)}</div>
+                        <div style="font-size: 0.9rem; color: #6c757d; margin-top: 5px;">
+                            ID: ${note.id} • ${new Date(note.created_at).toLocaleDateString('ru-RU')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            modal.style.display = 'flex';
+        }
+        
+        // Выбор заметки для загрузки
+        function selectNoteForUpload(noteId, noteTitle) {
+            document.getElementById('noteId').value = noteId;
+            closeNoteSelect();
+            showNotification(`Выбрана заметка: "${noteTitle}" (ID: ${noteId})`, 'info');
+            document.getElementById('fileInput').focus();
+        }
+        
+        // Закрытие модального окна выбора заметки
+        function closeNoteSelect() {
+            document.getElementById('noteSelectModal').style.display = 'none';
+        }
+        
+        // Просмотр файла
+        function previewFile(url, filename) {
+            const modal = document.getElementById('filePreviewModal');
+            const content = document.getElementById('filePreviewContent');
+            
+            const extension = filename.split('.').pop().toLowerCase();
+            const imageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+            const textFormats = ['txt', 'csv', 'json', 'js', 'html', 'css', 'py', 'md', 'xml'];
+            
+            if (imageFormats.includes(extension)) {
+                content.innerHTML = `<img src="${url}" alt="${filename}">`;
+            } else if (extension === 'pdf') {
+                content.innerHTML = `<iframe src="${url}" title="${filename}"></iframe>`;
+            } else if (textFormats.includes(extension)) {
+                content.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <a href="${url}" target="_blank" class="btn" style="display: inline-block; margin-right: 10px;">
+                            📥 Скачать файл
+                        </a>
+                    </div>
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <p>Загрузка содержимого файла...</p>
+                    </div>
+                `;
+                
+                // Загружаем текстовое содержимое
+                fetch(url)
+                    .then(response => response.text())
+                    .then(text => {
+                        content.innerHTML = `
+                            <div style="margin-bottom: 15px;">
+                                <a href="${url}" target="_blank" class="btn" style="display: inline-block; margin-right: 10px;">
+                                    📥 Скачать файл
+                                </a>
+                            </div>
+                            <pre>${escapeHtml(text)}</pre>
+                        `;
+                    })
+                    .catch(error => {
+                        content.innerHTML = `<p>Не удалось загрузить файл: ${error.message}</p>`;
+                    });
+            } else {
+                content.innerHTML = `
+                    <p>Файл: <strong>${escapeHtml(filename)}</strong></p>
+                    <p>Тип файла: ${extension.toUpperCase()}</p>
+                    <p>Ссылка для скачивания:</p>
+                    <input type="text" value="${url}" readonly 
+                           style="width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #dee2e6; border-radius: 5px; background: #f8f9fa;">
+                    <a href="${url}" target="_blank" class="btn" style="display: inline-block;">
+                        📥 Скачать файл
+                    </a>
+                `;
+            }
+            
+            modal.style.display = 'flex';
+        }
+        
+        // Закрытие предпросмотра
+        function closePreview() {
+            document.getElementById('filePreviewModal').style.display = 'none';
         }
         
         // Проверка здоровья сервера
         async function checkHealth() {
             try {
-                const response = await fetch('http://localhost:5000/health');
+                const response = await fetch(`${API_BASE_URL}/health`);
                 const data = await response.json();
                 
                 if (data.status === 'healthy') {
-                    showNotification('✅ Сервер работает нормально', 'success');
+                    showNotification('✅ Сервер работает нормально. Все системы в порядке.', 'success');
                 } else {
-                    showNotification('⚠️ Проблемы с сервером: ' + (data.error || 'неизвестная ошибка'), 'error');
+                    showNotification('⚠️ Проблемы с сервером', 'error');
                 }
                 
             } catch (error) {
-                console.error('Ошибка проверки здоровья:', error);
                 showNotification('❌ Сервер не отвечает', 'error');
             }
         }
@@ -628,6 +1110,21 @@
         
         // Автообновление каждые 30 секунд
         setInterval(loadNotes, 30000);
+        
+        // Обработка клавиш
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (document.getElementById('filePreviewModal').style.display === 'flex') {
+                    closePreview();
+                }
+                if (document.getElementById('noteSelectModal').style.display === 'flex') {
+                    closeNoteSelect();
+                }
+                if (currentEditNoteId) {
+                    cancelEdit();
+                }
+            }
+        });
     </script>
 </body>
 </html>

@@ -6,9 +6,35 @@ import os
 import mysql.connector
 from mysql.connector import Error
 from dotenv import load_dotenv
+from flask import send_from_directory
+from storage_service import SimpleYandexStorage
 
 # Загружаем переменные окружения
 load_dotenv()
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+try:
+    from storage_service import SimpleYandexStorage
+    storage_service = SimpleYandexStorage()  # Создаем экземпляр
+    print("✅ Storage service imported successfully")
+except ImportError as e:
+    print(f"❌ Error importing SimpleYandexStorage: {e}")
+    # Создаем заглушку
+    class DummyStorage:
+        def upload_file(self, file, note_id):
+            print("⚠️  DummyStorage: upload_file called")
+            return {
+                'filename': file.filename if file else 'unknown',
+                'storage_path': f'/tmp/{file.filename}' if file else '/tmp/unknown',
+                'url': f'/uploads/{file.filename}' if file else '/uploads/unknown',
+                'uploaded_at': datetime.now().isoformat()
+            }
+        def delete_file(self, path):
+            print("⚠️  DummyStorage: delete_file called (no actual deletion)")
+            return True
+    
+    storage_service = DummyStorage()
 
 # Конфигурация базы данных для Docker
 DB_CONFIG = {
@@ -47,14 +73,16 @@ def init_database():
         try:
             cursor = connection.cursor()
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS notes (
+                CREATE TABLE IF NOT EXISTS attachments (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    title VARCHAR(255) NOT NULL,
-                    content TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    is_deleted BOOLEAN DEFAULT FALSE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    note_id INT NOT NULL,
+                    original_filename VARCHAR(255) NOT NULL,
+                    storage_path VARCHAR(500) NOT NULL,
+                    file_url VARCHAR(500) NOT NULL,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+                    INDEX idx_note_id (note_id)
+                )
             ''')
             connection.commit()
             cursor.close()
@@ -108,6 +136,164 @@ def health():
         "database_port": DB_CONFIG['port'],
         "database_name": DB_CONFIG['database']
     })
+
+# ========== OBJECT STORAGE ENDPOINTS ==========
+
+@app.route('/api/notes/<int:note_id>/attach', methods=['POST'])
+def upload_attachment(note_id):
+    """Загружает файл к заметке"""
+    try:
+        # Проверяем, существует ли заметка
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+            
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM notes WHERE id = %s AND is_deleted = FALSE', (note_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({"error": f"Note with ID {note_id} not found"}), 404
+        
+        # Проверяем наличие файла
+        if 'file' not in request.files:
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Загружаем в Object Storage
+        file_info = storage_service.upload_file(file, note_id)
+        
+        if not file_info:
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "Failed to upload file to storage"}), 500
+        
+        # Сохраняем информацию в БД
+        cursor.execute('''
+            INSERT INTO attachments (note_id, original_filename, storage_path, file_url) 
+            VALUES (%s, %s, %s, %s)
+        ''', (note_id, file_info['filename'], file_info['storage_path'], file_info['url']))
+        
+        attachment_id = cursor.lastrowid
+        conn.commit()
+        
+        # Получаем созданную запись
+        cursor.execute('SELECT * FROM attachments WHERE id = %s', (attachment_id,))
+        attachment = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"✅ ATTACHMENT: Uploaded file '{file_info['filename']}' to note #{note_id}")
+        
+        return jsonify({
+            "id": attachment[0],
+            "note_id": attachment[1],
+            "filename": attachment[2],
+            "storage_path": attachment[3],
+            "url": attachment[4],
+            "uploaded_at": attachment[5].isoformat() if attachment[5] else None,
+            "message": "File uploaded successfully to Yandex Object Storage"
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"❌ ATTACHMENT upload error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+    
+@app.route('/uploads/<filename>')
+def serve_uploaded_file(filename):
+    """Отдает загруженные файлы"""
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route('/api/notes/<int:note_id>/attachments', methods=['GET'])
+def get_attachments(note_id):
+    """Получает все вложения для заметки"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+            
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute('''
+            SELECT id, note_id, original_filename, storage_path, file_url, uploaded_at 
+            FROM attachments 
+            WHERE note_id = %s 
+            ORDER BY uploaded_at DESC
+        ''', (note_id,))
+        
+        attachments = cursor.fetchall()
+        
+        # Преобразуем datetime в строки
+        for att in attachments:
+            if att['uploaded_at']:
+                att['uploaded_at'] = att['uploaded_at'].isoformat()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "note_id": note_id,
+            "attachments": attachments,
+            "count": len(attachments)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ GET ATTACHMENTS error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/attachments/<int:attachment_id>', methods=['DELETE'])
+def delete_attachment(attachment_id):
+    """Удаляет вложение"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+            
+        cursor = conn.cursor(dictionary=True)
+        
+        # Получаем информацию о файле
+        cursor.execute('SELECT * FROM attachments WHERE id = %s', (attachment_id,))
+        attachment = cursor.fetchone()
+        
+        if not attachment:
+            cursor.close()
+            conn.close()
+            return jsonify({"error": f"Attachment with ID {attachment_id} not found"}), 404
+        
+        # Удаляем из Object Storage
+        success = storage_service.delete_file(attachment['storage_path'])
+        
+        if not success:
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "Failed to delete file from storage"}), 500
+        
+        # Удаляем запись из БД
+        cursor.execute('DELETE FROM attachments WHERE id = %s', (attachment_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"✅ ATTACHMENT: Deleted attachment #{attachment_id}")
+        
+        return jsonify({
+            "id": attachment_id,
+            "message": "Attachment deleted successfully from Yandex Object Storage"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ DELETE ATTACHMENT error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 # ---------- CREATE ----------
 @app.route('/api/notes', methods=['POST'])
