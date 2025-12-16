@@ -253,8 +253,10 @@ resource "yandex_alb_backend_group" "app_backend_group" {
     
     # Health check для проверки работоспособности
     healthcheck {
-      timeout  = "10s"
-      interval = "2s"
+      timeout              = "10s"
+      interval             = "2s"
+      healthy_threshold    = "2"    # Количество успешных проверок для признания хоста рабочим
+      unhealthy_threshold  = "2"    # Количество неуспешных проверок для признания хоста нерабочим
       
       http_healthcheck {
         path = "/health"
