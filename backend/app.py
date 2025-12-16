@@ -3,9 +3,8 @@ from flask_cors import CORS
 import logging
 from datetime import datetime
 import os
-import mysql.connector
-from mysql.connector import Error
 from dotenv import load_dotenv
+import MySQLdb
 from flask import send_from_directory
 from storage_service import SimpleYandexStorage
 
@@ -56,12 +55,18 @@ logger = logging.getLogger(__name__)
 # ========== ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ ==========
 
 def get_db_connection():
-    """Создает подключение к MySQL в Docker"""
+    """Создает подключение к MySQL с MySQLdb"""
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = MySQLdb.connect(
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            user=DB_CONFIG['user'],
+            passwd=DB_CONFIG['password'],  # MySQLdb использует passwd
+            db=DB_CONFIG['database']       # MySQLdb использует db
+        )
         logger.info(f"✅ Database connected to {DB_CONFIG['host']}:{DB_CONFIG['port']}")
         return conn
-    except mysql.connector.Error as e:
+    except Exception as e:  # Или except MySQLdb.Error as e:
         logger.error(f"❌ Database connection error: {e}")
         logger.error(f"   Config: host={DB_CONFIG['host']}, port={DB_CONFIG['port']}")
         return None
