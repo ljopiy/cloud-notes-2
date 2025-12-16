@@ -1,0 +1,7 @@
+yc_cloud_id  = "b1g6gg8q0fsneht3c0si"
+yc_folder_id = "b1g7ua3a9jgk7aph4gs1"
+db_password  = "123"
+environment  = "prod"
+project_name = "cloud-notes"
+yc_access_key = "YCAJEztIZF8VCEN99FJ0h_0u5"
+yc_secret_key = "YCP4kSDk7xGsiarj702fNy90RmYyTWIXUIIwApn8"

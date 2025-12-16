@@ -1,0 +1,318 @@
+# Cloud Notes - Базовая инфраструктура с Object Storage
+
+# 1. Получаем информацию о существующей сети "default"
+data "yandex_vpc_network" "existing" {
+  network_id = "enpg9m58po6uhsi1jpk9"  # ID сети "default"
+}
+
+# 2. Создаем подсеть в существующей сети
+resource "yandex_vpc_subnet" "app_subnet" {
+  name           = "cloud-notes-subnet"
+  zone           = "ru-central1-a"
+  network_id     = data.yandex_vpc_network.existing.id
+  v4_cidr_blocks = ["192.168.30.0/24"]  # Используем .30 чтобы избежать конфликтов
+}
+
+# 3. Security Group в существующей сети
+resource "yandex_vpc_security_group" "app_sg" {
+  name        = "cloud-notes-sg"
+  network_id  = data.yandex_vpc_network.existing.id
+
+  ingress {
+    protocol       = "TCP"
+    port           = 80
+    v4_cidr_blocks = ["0.0.0.0/0"]
+    description    = "HTTP from load balancer"
+  }
+
+  ingress {
+    protocol       = "TCP"
+    port           = 22
+    v4_cidr_blocks = ["0.0.0.0/0"]
+    description    = "SSH for administration"
+  }
+
+  ingress {
+    protocol       = "TCP"
+    port           = 5000
+    v4_cidr_blocks = ["0.0.0.0/0"]
+    description    = "Flask application port"
+  }
+
+  egress {
+    protocol       = "ANY"
+    v4_cidr_blocks = ["0.0.0.0/0"]
+    description    = "Outbound traffic"
+  }
+}
+
+# ========================
+# OBJECT STORAGE (Пункт 4 задания)
+# ========================
+
+# 4. Генерируем уникальный суффикс для имени бакета
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
+# 5. Object Storage для файловых вложений
+resource "yandex_storage_bucket" "attachments" {
+  bucket     = "cloud-notes-attachments-${random_id.bucket_suffix.hex}"
+  access_key = var.yc_access_key
+  secret_key = var.yc_secret_key
+  
+  # Для безопасности лучше private
+  acl = "private"
+  
+  # Включаем версионирование файлов
+  versioning {
+    enabled = true
+  }
+  
+  # CORS настройки для доступа из браузера
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "PUT", "POST", "DELETE"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+  
+  tags = {
+    project     = "cloud-notes"
+    purpose     = "file-attachments"
+    environment = var.environment
+    managed-by  = "terraform"
+  }
+}
+
+# Выводим информацию о созданных ресурсах
+output "subnet_id" {
+  value = yandex_vpc_subnet.app_subnet.id
+}
+
+output "security_group_id" {
+  value = yandex_vpc_security_group.app_sg.id
+}
+
+output "network_info" {
+  value = "Using existing network: ${data.yandex_vpc_network.existing.name} (ID: ${data.yandex_vpc_network.existing.id})"
+}
+
+output "bucket_name" {
+  value = yandex_storage_bucket.attachments.bucket
+  description = "Name of the Object Storage bucket"
+}
+
+output "bucket_url" {
+  value = "https://${yandex_storage_bucket.attachments.bucket}.storage.yandexcloud.net"
+  description = "URL for accessing the bucket"
+}
+
+resource "yandex_container_registry" "main" {
+  name = "cloud-notes-registry"
+  
+  labels = {
+    project     = var.project_name
+    environment = var.environment
+    managed-by  = "terraform"
+  }
+}
+
+output "registry_id" {
+  value = yandex_container_registry.main.id
+  description = "Container Registry ID"
+}
+
+output "registry_name" {
+  value = yandex_container_registry.main.name
+  description = "Container Registry name"
+}
+
+# Managed MySQL кластер
+# ========================
+# MANAGED MYSQL (Пункт 3 задания)
+# ========================
+
+# ========================
+# MANAGED MYSQL (Пункт 3 задания)
+# ========================
+resource "yandex_mdb_mysql_cluster" "main" {
+  name        = "cloud-notes-mysql"
+  environment = "PRODUCTION"
+  network_id  = data.yandex_vpc_network.existing.id
+  version     = "8.0"
+  
+  resources {
+    resource_preset_id = "s2.micro"
+    disk_type_id       = "network-ssd"
+    disk_size          = 20
+  }
+  
+  host {
+    zone      = "ru-central1-a"
+    subnet_id = yandex_vpc_subnet.app_subnet.id
+  }
+  
+  security_group_ids = [yandex_vpc_security_group.app_sg.id]
+}
+
+# Отдельный ресурс для базы данных
+resource "yandex_mdb_mysql_database" "notes_db" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_db"
+}
+
+# Отдельный ресурс для пользователя
+resource "yandex_mdb_mysql_user" "notes_user" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_user"
+  password   = "123"
+  
+  permission {
+    database_name = yandex_mdb_mysql_database.notes_db.name
+    roles         = ["ALL"]
+  }
+}
+
+output "mysql_host" {
+  value = yandex_mdb_mysql_cluster.main.host[0].fqdn
+  description = "MySQL hostname"
+}
+
+output "mysql_port" {
+  value = 3306
+  description = "MySQL port"
+}
+
+output "mysql_database" {
+  value = yandex_mdb_mysql_database.notes_db.name
+  description = "MySQL database name"
+}
+
+output "mysql_username" {
+  value = yandex_mdb_mysql_user.notes_user.name
+  description = "MySQL username"
+}
+
+# ========================
+# MANAGED MYSQL (Пункт 3 задания)
+# ========================
+resource "yandex_mdb_mysql_cluster" "main" {
+  name        = "cloud-notes-mysql"
+  environment = "PRODUCTION"
+  network_id  = data.yandex_vpc_network.existing.id
+  version     = "8.0"
+  
+  resources {
+    resource_preset_id = "s2.micro"
+    disk_type_id       = "network-ssd"
+    disk_size          = 20
+  }
+  
+  host {
+    zone      = "ru-central1-a"
+    subnet_id = yandex_vpc_subnet.app_subnet.id
+  }
+  
+  security_group_ids = [yandex_vpc_security_group.app_sg.id]
+}
+
+# Отдельный ресурс для базы данных
+resource "yandex_mdb_mysql_database" "notes_db" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_db"
+}
+
+# Отдельный ресурс для пользователя
+resource "yandex_mdb_mysql_user" "notes_user" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_user"
+  password   = "123"
+  
+  permission {
+    database_name = yandex_mdb_mysql_database.notes_db.name
+    roles         = ["ALL"]
+  }
+}
+
+output "mysql_host" {
+  value = yandex_mdb_mysql_cluster.main.host[0].fqdn
+  description = "MySQL hostname"
+}
+
+output "mysql_port" {
+  value = 3306
+  description = "MySQL port"
+}
+
+output "mysql_database" {
+  value = yandex_mdb_mysql_database.notes_db.name
+  description = "MySQL database name"
+}
+
+output "mysql_username" {
+  value = yandex_mdb_mysql_user.notes_user.name
+  description = "MySQL username"
+}
+
+# ========================
+# MANAGED MYSQL (Пункт 3 задания)
+# ========================
+resource "yandex_mdb_mysql_cluster" "main" {
+  name        = "cloud-notes-mysql"
+  environment = "PRODUCTION"
+  network_id  = data.yandex_vpc_network.existing.id
+  version     = "8.0"
+  
+  resources {
+    resource_preset_id = "s2.micro"
+    disk_type_id       = "network-ssd"
+    disk_size          = 20
+  }
+  
+  host {
+    zone      = "ru-central1-a"
+    subnet_id = yandex_vpc_subnet.app_subnet.id
+  }
+  
+  security_group_ids = [yandex_vpc_security_group.app_sg.id]
+}
+
+# Отдельный ресурс для базы данных
+resource "yandex_mdb_mysql_database" "notes_db" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_db"
+}
+
+# Отдельный ресурс для пользователя
+resource "yandex_mdb_mysql_user" "notes_user" {
+  cluster_id = yandex_mdb_mysql_cluster.main.id
+  name       = "notes_user"
+  password   = "123"
+  
+  permission {
+    database_name = yandex_mdb_mysql_database.notes_db.name
+    roles         = ["ALL"]
+  }
+}
+
+output "mysql_host" {
+  value = yandex_mdb_mysql_cluster.main.host[0].fqdn
+  description = "MySQL hostname"
+}
+
+output "mysql_port" {
+  value = 3306
+  description = "MySQL port"
+}
+
+output "mysql_database" {
+  value = yandex_mdb_mysql_database.notes_db.name
+  description = "MySQL database name"
+}
+
+output "mysql_username" {
+  value = yandex_mdb_mysql_user.notes_user.name
+  description = "MySQL username"
+}
